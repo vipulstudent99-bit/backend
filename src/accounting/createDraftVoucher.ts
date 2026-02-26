@@ -1,10 +1,9 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../../prisma/client";
 import {
     generateEntriesFromTemplate,
     VoucherTemplateInput,
 } from "./templates/voucherTemplateEngine";
-
-const prisma = new PrismaClient();
 
 /**
  * Input for creating a draft voucher.
@@ -12,8 +11,9 @@ const prisma = new PrismaClient();
  */
 export type CreateDraftVoucherInput = VoucherTemplateInput & {
     companyId: string;
+    voucherTypeId: string;
     voucherDate: Date;
-    narration?: string;
+    narration?: string | null;
 };
 
 /**
@@ -37,11 +37,13 @@ export async function createDraftVoucher(
             });
 
             // 2. Generate entries from template engine
+            // Pass voucherType (string code), subType, totalAmount, accounts
             const entries = generateEntriesFromTemplate({
-                voucherTypeId: input.voucherTypeId,
+                voucherType: input.voucherType,
                 subType: input.subType,
-                amount: input.amount,
+                totalAmount: input.totalAmount,
                 paymentAccountId: input.paymentAccountId,
+                accounts: input.accounts,
             });
 
             // 3. Enforce Debit = Credit (HARD RULE)
@@ -54,7 +56,9 @@ export async function createDraftVoucher(
                 .reduce((sum, e) => sum + e.amount, 0);
 
             if (totalDebit !== totalCredit) {
-                throw new Error("Debit and Credit totals do not match");
+                throw new Error(
+                    `Debit (${totalDebit}) and Credit (${totalCredit}) totals do not match`
+                );
             }
 
             // 4. Persist entries
