@@ -1,6 +1,7 @@
 import express from "express";
 import vouchersRouter from "./api/routes/vouchers";
 import reportsRouter from "./api/routes/reports";
+import partiesRouter from "./api/routes/parties";
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.get("/health", (_req, res) => {
  */
 app.use("/api/vouchers", vouchersRouter);
 app.use("/api/reports", reportsRouter);
+app.use("/api/parties", partiesRouter);
 
 /**
  * Global error handler
