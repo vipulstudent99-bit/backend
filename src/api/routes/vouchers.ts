@@ -8,16 +8,21 @@ import { postVoucher } from "../../accounting/postVoucher";
 const router = Router();
 
 /**
- * Maps frontend payment category keys to expense account codes in the DB.
- * These codes must match what's in prisma/seed.ts.
- * Frontend sends paymentCategory (e.g. 'RENT'); backend resolves to account code.
+ * Maps frontend payment category keys → expense account codes in the DB.
+ * MUST match the `code` field in prisma/seed.ts exactly.
+ *
+ *   SALARY  → SALARY_EXPENSE
+ *   RENT    → RENT_EXPENSE
+ *   FREIGHT → FREIGHT_EXPENSE
+ *   UTILITY → UTILITY_EXPENSE
+ *   OTHER   → MISC_EXPENSE
  */
 const EXPENSE_CATEGORY_TO_ACCOUNT_CODE: Record<string, string> = {
-  SALARY:   "EXP-SAL",
-  RENT:     "EXP-RENT",
-  FREIGHT:  "EXP-FREIGHT",
-  UTILITY:  "EXP-UTIL",
-  OTHER:    "EXP-OTHER",
+  SALARY:   "SALARY_EXPENSE",
+  RENT:     "RENT_EXPENSE",
+  FREIGHT:  "FREIGHT_EXPENSE",
+  UTILITY:  "UTILITY_EXPENSE",
+  OTHER:    "MISC_EXPENSE",
 };
 
 /**
@@ -29,7 +34,7 @@ async function resolveVoucherIds(body: any) {
     voucherType, subType, totalAmount, paymentMode,
     narration, voucherDate, partyId,
     expenseAccountCode,   // explicit override (optional)
-    paymentCategory,      // NEW: SALARY | RENT | FREIGHT | UTILITY | OTHER
+    paymentCategory,      // SALARY | RENT | FREIGHT | UTILITY | OTHER
     journalEntries,
   } = body;
 
@@ -62,8 +67,8 @@ async function resolveVoucherIds(body: any) {
   let expenseAccountId: string | undefined;
   if (voucherType === "PAYMENT" && subType === "EXPENSE_PAYMENT") {
     // Resolve in priority order:
-    // 1. Explicit expenseAccountCode from frontend (legacy / advanced)
-    // 2. paymentCategory → auto-mapped to account code
+    // 1. Explicit expenseAccountCode from frontend (advanced override)
+    // 2. paymentCategory → auto-mapped using EXPENSE_CATEGORY_TO_ACCOUNT_CODE
     const resolvedCode =
       expenseAccountCode ||
       (paymentCategory && EXPENSE_CATEGORY_TO_ACCOUNT_CODE[String(paymentCategory).toUpperCase()]);
@@ -193,7 +198,7 @@ router.post("/draft", async (req, res, next) => {
 /**
  * PATCH /api/vouchers/draft/:id
  * Simple edit — amount, narration, date, partyId only.
- * Does NOT regenerate entries from scratch — scales proportionally.
+ * Scales existing entry amounts proportionally on amount change.
  */
 router.patch("/draft/:id", async (req, res, next) => {
   try {
