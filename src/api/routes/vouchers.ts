@@ -8,13 +8,29 @@ import { postVoucher } from "../../accounting/postVoucher";
 const router = Router();
 
 /**
- * Shared resolver — bridges frontend payload to DB IDs
+ * Maps frontend payment category keys to expense account codes in the DB.
+ * These codes must match what's in prisma/seed.ts.
+ * Frontend sends paymentCategory (e.g. 'RENT'); backend resolves to account code.
+ */
+const EXPENSE_CATEGORY_TO_ACCOUNT_CODE: Record<string, string> = {
+  SALARY:   "EXP-SAL",
+  RENT:     "EXP-RENT",
+  FREIGHT:  "EXP-FREIGHT",
+  UTILITY:  "EXP-UTIL",
+  OTHER:    "EXP-OTHER",
+};
+
+/**
+ * Shared resolver — bridges frontend payload to DB IDs.
+ * Frontend speaks business language; this converts to UUIDs.
  */
 async function resolveVoucherIds(body: any) {
   const {
     voucherType, subType, totalAmount, paymentMode,
     narration, voucherDate, partyId,
-    expenseAccountCode, journalEntries,
+    expenseAccountCode,   // explicit override (optional)
+    paymentCategory,      // NEW: SALARY | RENT | FREIGHT | UTILITY | OTHER
+    journalEntries,
   } = body;
 
   const company = await prisma.company.findFirst();
@@ -35,7 +51,7 @@ async function resolveVoucherIds(body: any) {
 
   const findByCode = (code: string): string => {
     const acc = accounts.find((a) => a.code === code);
-    if (!acc) throw new Error(`Account with code "${code}" not found. Run seed.`);
+    if (!acc) throw new Error(`No account with code "${code}" found. Check seed data.`);
     return acc.id;
   };
 
@@ -45,9 +61,21 @@ async function resolveVoucherIds(body: any) {
 
   let expenseAccountId: string | undefined;
   if (voucherType === "PAYMENT" && subType === "EXPENSE_PAYMENT") {
-    if (!expenseAccountCode)
-      throw new Error("expenseAccountCode required for EXPENSE_PAYMENT");
-    expenseAccountId = findByCode(expenseAccountCode);
+    // Resolve in priority order:
+    // 1. Explicit expenseAccountCode from frontend (legacy / advanced)
+    // 2. paymentCategory → auto-mapped to account code
+    const resolvedCode =
+      expenseAccountCode ||
+      (paymentCategory && EXPENSE_CATEGORY_TO_ACCOUNT_CODE[String(paymentCategory).toUpperCase()]);
+
+    if (!resolvedCode) {
+      throw new Error(
+        `Cannot determine expense account. ` +
+        `Send either 'expenseAccountCode' or 'paymentCategory' ` +
+        `(SALARY | RENT | FREIGHT | UTILITY | OTHER).`
+      );
+    }
+    expenseAccountId = findByCode(resolvedCode);
   }
 
   if (partyId) {
@@ -56,17 +84,17 @@ async function resolveVoucherIds(body: any) {
   }
 
   return {
-    companyId: company.id,
-    voucherTypeId: voucherTypeRecord.id,
-    voucherType: voucherType as any,
-    subType: subType ?? null,
-    totalAmount: Number(totalAmount),
+    companyId:      company.id,
+    voucherTypeId:  voucherTypeRecord.id,
+    voucherType:    voucherType as any,
+    subType:        subType ?? null,
+    totalAmount:    Number(totalAmount),
     paymentAccountId,
     expenseAccountId,
     journalEntries: journalEntries ?? undefined,
-    narration: narration ?? null,
-    voucherDate: new Date(voucherDate),
-    partyId: partyId ?? null,
+    narration:      narration ?? null,
+    voucherDate:    new Date(voucherDate),
+    partyId:        partyId ?? null,
     accounts: {
       salesAccountId:           findByRole("SALES"),
       purchaseExpenseAccountId: findByRole("PURCHASE"),
@@ -92,8 +120,8 @@ router.get("/drafts", async (_req, res, next) => {
       orderBy: { createdAt: "desc" },
       include: {
         voucherType: { select: { code: true, name: true } },
-        party: { select: { id: true, name: true } },
-        entries: { select: { side: true, amount: true } },
+        party:       { select: { id: true, name: true } },
+        entries:     { select: { side: true, amount: true } },
       },
     });
 
@@ -105,7 +133,7 @@ router.get("/drafts", async (_req, res, next) => {
       totalAmount:   v.entries.filter((e) => e.side === "DEBIT").reduce((s, e) => s + Number(e.amount), 0),
       status:        v.status,
       narration:     v.narration,
-      partyId:       v.party?.id ?? null,
+      partyId:       v.party?.id   ?? null,
       partyName:     v.party?.name ?? null,
       voucherNumber: v.voucherNumber,
       createdAt:     v.createdAt,
@@ -117,7 +145,6 @@ router.get("/drafts", async (_req, res, next) => {
 
 /**
  * GET /api/vouchers/all
- * Returns ALL vouchers (DRAFT + POSTED + CANCELLED) for All Entries page
  */
 router.get("/all", async (_req, res, next) => {
   try {
@@ -129,8 +156,8 @@ router.get("/all", async (_req, res, next) => {
       orderBy: { createdAt: "desc" },
       include: {
         voucherType: { select: { code: true } },
-        party: { select: { id: true, name: true } },
-        entries: { select: { side: true, amount: true } },
+        party:       { select: { id: true, name: true } },
+        entries:     { select: { side: true, amount: true } },
       },
     });
 
@@ -142,7 +169,7 @@ router.get("/all", async (_req, res, next) => {
       totalAmount:   v.entries.filter((e) => e.side === "DEBIT").reduce((s, e) => s + Number(e.amount), 0),
       status:        v.status,
       narration:     v.narration,
-      partyId:       v.party?.id ?? null,
+      partyId:       v.party?.id   ?? null,
       partyName:     v.party?.name ?? null,
       voucherNumber: v.voucherNumber,
       createdAt:     v.createdAt,
@@ -165,9 +192,8 @@ router.post("/draft", async (req, res, next) => {
 
 /**
  * PATCH /api/vouchers/draft/:id
- * Simple edit — only updates amount, narration, date, partyId
- * Does NOT require full voucherType/subType/paymentMode re-resolution
- * Regenerates entries by scaling the existing entry amounts proportionally
+ * Simple edit — amount, narration, date, partyId only.
+ * Does NOT regenerate entries from scratch — scales proportionally.
  */
 router.patch("/draft/:id", async (req, res, next) => {
   try {
@@ -183,7 +209,6 @@ router.patch("/draft/:id", async (req, res, next) => {
     const newAmount = totalAmount !== undefined ? Number(totalAmount) : null;
 
     await prisma.$transaction(async (tx) => {
-      // Update header
       await tx.voucher.update({
         where: { id: req.params.id },
         data: {
@@ -193,7 +218,6 @@ router.patch("/draft/:id", async (req, res, next) => {
         },
       });
 
-      // If amount changed, scale all existing entry amounts proportionally
       if (newAmount !== null) {
         const oldDebitTotal = existing.entries
           .filter((e) => e.side === "DEBIT")
@@ -204,7 +228,7 @@ router.patch("/draft/:id", async (req, res, next) => {
           for (const entry of existing.entries) {
             await tx.entry.update({
               where: { id: entry.id },
-              data: { amount: Number(entry.amount) * ratio },
+              data:  { amount: Number(entry.amount) * ratio },
             });
           }
         }
@@ -217,7 +241,7 @@ router.patch("/draft/:id", async (req, res, next) => {
 
 /**
  * PUT /api/vouchers/draft/:id
- * Full replacement — requires complete payload (voucherType, subType, paymentMode etc.)
+ * Full replacement — requires complete payload.
  */
 router.put("/draft/:id", async (req, res, next) => {
   try {
