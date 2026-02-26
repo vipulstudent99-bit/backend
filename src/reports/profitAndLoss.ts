@@ -1,6 +1,4 @@
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../../prisma/client";
 
 /**
  * Profit & Loss Report
@@ -18,7 +16,6 @@ export async function getProfitAndLoss(params: {
 }) {
     const { companyId, fromDate, toDate } = params;
 
-    // Date filter (same pattern as Trial Balance)
     const dateFilter =
         fromDate || toDate
             ? {
@@ -36,9 +33,6 @@ export async function getProfitAndLoss(params: {
                 },
             };
 
-    /**
-     * Load INCOME and EXPENSE accounts
-     */
     const accounts = await prisma.account.findMany({
         where: {
             companyId,
@@ -49,9 +43,6 @@ export async function getProfitAndLoss(params: {
         include: { accountType: true },
     });
 
-    /**
-     * Aggregate entries
-     */
     const raw = await prisma.entry.groupBy({
         by: ["accountId", "side"],
         where: {
@@ -63,41 +54,31 @@ export async function getProfitAndLoss(params: {
             },
             ...dateFilter,
         },
-        _sum: {
-            amount: true,
-        },
+        _sum: { amount: true },
     });
 
-    /**
-     * Build line items
-     */
     const income: any[] = [];
     const expenses: any[] = [];
 
     for (const account of accounts) {
         const debit =
-            raw.find(
-                (r) =>
-                    r.accountId === account.id && r.side === "DEBIT"
-            )?._sum.amount ?? 0;
+            raw.find((r) => r.accountId === account.id && r.side === "DEBIT")
+                ?._sum.amount ?? 0;
 
         const credit =
-            raw.find(
-                (r) =>
-                    r.accountId === account.id && r.side === "CREDIT"
-            )?._sum.amount ?? 0;
+            raw.find((r) => r.accountId === account.id && r.side === "CREDIT")
+                ?._sum.amount ?? 0;
 
-        // Accounting convention
         const balance =
             account.accountType.code === "INCOME"
-                ? credit - debit
-                : debit - credit;
+                ? Number(credit) - Number(debit)
+                : Number(debit) - Number(credit);
 
         const row = {
             accountId: account.id,
             accountCode: account.code,
             accountName: account.name,
-            amount: Number(balance),
+            amount: balance,
         };
 
         if (account.accountType.code === "INCOME") {
@@ -107,18 +88,15 @@ export async function getProfitAndLoss(params: {
         }
     }
 
-    /**
-     * Totals
-     */
     const totalIncome = income.reduce((s, r) => s + r.amount, 0);
-    const totalExpense = expenses.reduce((s, r) => s + r.amount, 0);
-    const profitOrLoss = totalIncome - totalExpense;
+    const totalExpenses = expenses.reduce((s, r) => s + r.amount, 0);
+    const netProfit = totalIncome - totalExpenses;
 
     return {
         income,
         expenses,
         totalIncome,
-        totalExpense,
-        profitOrLoss,
+        totalExpenses,   // matches frontend: report.totalExpenses
+        netProfit,       // matches frontend: report.netProfit
     };
 }
