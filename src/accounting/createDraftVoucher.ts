@@ -1,10 +1,9 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../../prisma/client.js";
 import {
     generateEntriesFromTemplate,
     VoucherTemplateInput,
-} from "./templates/voucherTemplateEngine";
-
-const prisma = new PrismaClient();
+} from "./templates/voucherTemplateEngine.js";
 
 /**
  * Input for creating a draft voucher.
@@ -12,6 +11,7 @@ const prisma = new PrismaClient();
  */
 export type CreateDraftVoucherInput = VoucherTemplateInput & {
     companyId: string;
+    voucherTypeId: string;
     voucherDate: Date;
     narration?: string;
 };
@@ -37,12 +37,7 @@ export async function createDraftVoucher(
             });
 
             // 2. Generate entries from template engine
-            const entries = generateEntriesFromTemplate({
-                voucherTypeId: input.voucherTypeId,
-                subType: input.subType,
-                amount: input.amount,
-                paymentAccountId: input.paymentAccountId,
-            });
+            const entries = generateEntriesFromTemplate(input);
 
             // 3. Enforce Debit = Credit (HARD RULE)
             const totalDebit = entries
