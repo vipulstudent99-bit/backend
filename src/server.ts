@@ -1,6 +1,6 @@
 import express from "express";
 import vouchersRouter from "./api/routes/vouchers";
-import { requireAuth } from "./api/middleware/requireAuth";
+import reportsRouter from "./api/routes/reports";
 
 const app = express();
 
@@ -8,34 +8,43 @@ const app = express();
  * Middleware
  */
 app.use(express.json());
-// Temporary dev auth — sets req.user for all routes
+
+// Dev auth stub — sets req.user so requireRole() works
 app.use((req: any, _res, next) => {
   req.user = { id: "demo-user-id", role: "Admin" };
   next();
 });
 
+/**
+ * Health check
+ */
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 /**
  * Routes
  */
 app.use("/api/vouchers", vouchersRouter);
+app.use("/api/reports", reportsRouter);
 
 /**
  * Global error handler
  */
 app.use((err: any, _req: any, res: any, _next: any) => {
-    console.error(err);
-    res.status(400).json({
-        error: err?.message ?? "Unknown error",
-    });
+  console.error(err);
+  res.status(400).json({
+    error: err?.message ?? "Unknown error",
+  });
 });
 
 /**
  * Server
- * IMPORTANT: Hardcoded port to avoid env collision with frontend
  */
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 app.listen(PORT, () => {
-    console.log(`API running on http://localhost:${PORT}`);
+  console.log(`API running on http://localhost:${PORT}`);
 });
+
+export { app };
