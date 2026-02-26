@@ -8,7 +8,12 @@ const app = express();
  * Middleware
  */
 app.use(express.json());
-// app.use(requireAuth); // TEMPORARILY DISABLED FOR DEV
+// Temporary dev auth — sets req.user for all routes
+app.use((req: any, _res, next) => {
+  req.user = { id: "demo-user-id", role: "Admin" };
+  next();
+});
+
 
 /**
  * Routes
