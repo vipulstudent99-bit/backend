@@ -1,10 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../prisma/client.js";
 import {
     generateEntriesFromTemplate,
     VoucherTemplateInput,
-} from "./templates/voucherTemplateEngine";
-
-const prisma = new PrismaClient();
+} from "./templates/voucherTemplateEngine.js";
 
 type UpdateDraftVoucherInput = VoucherTemplateInput & {
     voucherDate: Date;
@@ -39,18 +37,31 @@ export async function updateDraftVoucher(
             data: {
                 voucherDate: input.voucherDate,
                 narration: input.narration ?? null,
-                partyId: input.partyId ?? null,
             },
         });
 
         // 3. Re-generate entries from template
         const generatedEntries = generateEntriesFromTemplate(input);
 
+        // 4. Enforce Debit = Credit (HARD RULE)
+        const totalDebit = generatedEntries
+            .filter((e) => e.side === "DEBIT")
+            .reduce((sum, e) => sum + e.amount, 0);
+
+        const totalCredit = generatedEntries
+            .filter((e) => e.side === "CREDIT")
+            .reduce((sum, e) => sum + e.amount, 0);
+
+        if (totalDebit !== totalCredit) {
+            throw new Error("Debit and Credit totals do not match");
+        }
+
+        // 5. Persist regenerated entries
         for (const entry of generatedEntries) {
             await tx.entry.create({
                 data: {
                     voucherId,
-                    accountCode: entry.accountCode,
+                    accountId: entry.accountId,
                     side: entry.side,
                     amount: entry.amount,
                 },

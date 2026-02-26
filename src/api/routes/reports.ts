@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { requireRole } from "../middleware/requireRole";
-import { getTrialBalance } from "../../reports/trialBalance";
-import { getProfitAndLoss } from "../../reports/profitAndLoss";
+import { requireRole } from "../middleware/requireRole.js";
+import { getTrialBalance } from "../../reports/trialBalance.js";
+import { getProfitAndLoss } from "../../reports/profitAndLoss.js";
 
 const router = Router();
 

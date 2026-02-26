@@ -1,6 +1,6 @@
 import express from "express";
-import vouchersRouter from "./api/routes/vouchers";
-import { requireAuth } from "./api/middleware/requireAuth";
+import vouchersRouter from "./api/routes/vouchers.js";
+import reportsRouter from "./api/routes/reports.js";
 
 const app = express();
 
@@ -8,12 +8,19 @@ const app = express();
  * Middleware
  */
 app.use(express.json());
-// app.use(requireAuth); // TEMPORARILY DISABLED FOR DEV
 
 /**
  * Routes
  */
 app.use("/api/vouchers", vouchersRouter);
+app.use("/api/reports", reportsRouter);
+
+/**
+ * Health check
+ */
+app.get("/health", (_req, res) => {
+    res.json({ status: "ok" });
+});
 
 /**
  * Global error handler
@@ -29,8 +36,10 @@ app.use((err: any, _req: any, res: any, _next: any) => {
  * Server
  * IMPORTANT: Hardcoded port to avoid env collision with frontend
  */
-const PORT = 3001;
+const PORT = process.env.PORT ?? 3001;
 
 app.listen(PORT, () => {
     console.log(`API running on http://localhost:${PORT}`);
 });
+
+export { app };

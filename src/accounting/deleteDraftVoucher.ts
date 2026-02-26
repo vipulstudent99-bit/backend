@@ -1,6 +1,4 @@
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../../prisma/client.js";
 
 export async function deleteDraftVoucher(voucherId: string) {
     return await prisma.$transaction(async (tx) => {

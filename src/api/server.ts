@@ -1,6 +1,6 @@
 import express from "express";
-import vouchersRouter from "./routes/vouchers";
-import reportsRouter from "./routes/reports";
+import vouchersRouter from "./routes/vouchers.js";
+import reportsRouter from "./routes/reports.js";
 
 const app = express();
 
