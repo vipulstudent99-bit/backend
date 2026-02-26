@@ -6,53 +6,33 @@ import { getProfitAndLoss } from "../../reports/profitAndLoss";
 const router = Router();
 
 // ─────────────────────────────────────────
-// HELPER: Generic account book (Cash or Bank)
-// Builds a running-balance ledger for a single
-// account identified by its AccountRole.
-// ─────────────────────────────────────────
-async function getAccountBook(
+const getAccountBook = async (
   companyId: string,
   role: "CASH" | "BANK",
   fromDate?: Date,
   toDate?: Date
-) {
-  // 1. Find the account
-  const account = await prisma.account.findFirst({
-    where: { companyId, role },
-  });
+) => {
+  const account = await prisma.account.findFirst({ where: { companyId, role } });
   if (!account) throw new Error(`No ${role} account found. Run seed.`);
 
-  // 2. Opening balance = sum of all POSTED entries on this account BEFORE fromDate
-  //    DR entries increase balance, CR entries decrease it
   let openingSignedBalance = 0;
-
   if (fromDate) {
     const prevEntries = await prisma.entry.findMany({
       where: {
         accountId: account.id,
-        voucher: {
-          companyId,
-          status: "POSTED",
-          voucherDate: { lt: fromDate },
-        },
+        voucher: { companyId, status: "POSTED", voucherDate: { lt: fromDate } },
       },
       select: { side: true, amount: true },
     });
-    openingSignedBalance = prevEntries.reduce((sum, e) =>
-      e.side === "DEBIT"
-        ? sum + Number(e.amount)
-        : sum - Number(e.amount)
-    , 0);
+    openingSignedBalance = prevEntries.reduce(
+      (sum, e) => (e.side === "DEBIT" ? sum + Number(e.amount) : sum - Number(e.amount)),
+      0
+    );
   }
 
-  // 3. Load entries in date range (ordered by date)
   const dateFilter: any = {};
   if (fromDate) dateFilter.gte = fromDate;
-  if (toDate) {
-    const end = new Date(toDate);
-    end.setHours(23, 59, 59, 999);
-    dateFilter.lte = end;
-  }
+  if (toDate) { const end = new Date(toDate); end.setHours(23, 59, 59, 999); dateFilter.lte = end; }
 
   const entries = await prisma.entry.findMany({
     where: {
@@ -77,14 +57,11 @@ async function getAccountBook(
     },
   });
 
-  // 4. Build rows with running balance
   let runningSignedBalance = openingSignedBalance;
-
   const transactions = entries.map((e) => {
     const debit  = e.side === "DEBIT"  ? Number(e.amount) : 0;
     const credit = e.side === "CREDIT" ? Number(e.amount) : 0;
     runningSignedBalance += debit - credit;
-
     return {
       date:          e.voucher.voucherDate.toISOString(),
       voucherId:     e.voucher.id,
@@ -100,26 +77,22 @@ async function getAccountBook(
     };
   });
 
-  const openingAbs  = Math.abs(openingSignedBalance);
-  const closingAbs  = Math.abs(runningSignedBalance);
-
-  // Summary totals
   const totalDebit  = transactions.reduce((s, r) => s + r.debit,  0);
   const totalCredit = transactions.reduce((s, r) => s + r.credit, 0);
 
   return {
-    accountId:           account.id,
-    accountCode:         account.code,
-    accountName:         account.name,
-    openingBalance:      openingAbs,
-    openingBalanceSide:  openingSignedBalance >= 0 ? "DR" : "CR",
+    accountId:          account.id,
+    accountCode:        account.code,
+    accountName:        account.name,
+    openingBalance:     Math.abs(openingSignedBalance),
+    openingBalanceSide: openingSignedBalance >= 0 ? "DR" : "CR",
     transactions,
     totalDebit,
     totalCredit,
-    closingBalance:      closingAbs,
-    closingBalanceSide:  runningSignedBalance >= 0 ? "DR" : "CR",
+    closingBalance:     Math.abs(runningSignedBalance),
+    closingBalanceSide: runningSignedBalance >= 0 ? "DR" : "CR",
   };
-}
+};
 
 // ─────────────────────────────────────────
 // GET /api/reports/cash-book
@@ -128,11 +101,9 @@ router.get("/cash-book", async (req, res, next) => {
   try {
     const company = await prisma.company.findFirst();
     if (!company) throw new Error("No company found. Run seed.");
-
     const { from, to } = req.query;
     const result = await getAccountBook(
-      company.id,
-      "CASH",
+      company.id, "CASH",
       from ? new Date(String(from)) : undefined,
       to   ? new Date(String(to))   : undefined
     );
@@ -147,11 +118,9 @@ router.get("/bank-book", async (req, res, next) => {
   try {
     const company = await prisma.company.findFirst();
     if (!company) throw new Error("No company found. Run seed.");
-
     const { from, to } = req.query;
     const result = await getAccountBook(
-      company.id,
-      "BANK",
+      company.id, "BANK",
       from ? new Date(String(from)) : undefined,
       to   ? new Date(String(to))   : undefined
     );
@@ -202,21 +171,25 @@ router.get("/profit-loss", async (req, res, next) => {
 router.get("/party-ledger", async (req, res, next) => {
   try {
     const { partyId, from, to } = req.query;
-    if (!partyId || typeof partyId !== "string") { res.status(400).json({ message: "partyId is required" }); return; }
+    if (!partyId || typeof partyId !== "string") {
+      res.status(400).json({ message: "partyId is required" });
+      return;
+    }
 
     const company = await prisma.company.findFirst();
     if (!company) { res.status(404).json({ message: "No company found" }); return; }
+    const companyId = company.id; // FIX: was missing — caused "companyId is not defined"
 
     const party = await prisma.party.findUnique({ where: { id: partyId } });
     if (!party) { res.status(404).json({ message: "Party not found" }); return; }
 
     const dateFilter: any = {};
     if (from) dateFilter.gte = new Date(String(from));
-    if (to) { const d = new Date(String(to)); d.setHours(23,59,59,999); dateFilter.lte = d; }
+    if (to) { const d = new Date(String(to)); d.setHours(23, 59, 59, 999); dateFilter.lte = d; }
 
     const vouchers = await prisma.voucher.findMany({
       where: {
-        companyId,
+        companyId,   // now correctly resolved
         partyId,
         status: "POSTED",
         ...(Object.keys(dateFilter).length > 0 && { voucherDate: dateFilter }),
@@ -237,8 +210,10 @@ router.get("/party-ledger", async (req, res, next) => {
         ? Number(party.openingBalance)
         : -Number(party.openingBalance);
 
-    const toSigned = (a: number, s: "DR" | "CR") => s === "DR" ? a : -a;
-    const fromSigned = (n: number) => ({ amount: Math.abs(n), side: (n >= 0 ? "DR" : "CR") as "DR" | "CR" });
+    const fromSigned = (n: number) => ({
+      amount: Math.abs(n),
+      side: (n >= 0 ? "DR" : "CR") as "DR" | "CR",
+    });
 
     const transactions = vouchers.map((v) => {
       let debit = 0; let credit = 0;
@@ -265,9 +240,10 @@ router.get("/party-ledger", async (req, res, next) => {
     res.json({
       party: {
         id: party.id, code: party.code, name: party.name, type: party.type,
-        phone: party.phone ?? undefined, email: party.email ?? undefined,
+        phone:   party.phone   ?? undefined,
+        email:   party.email   ?? undefined,
         address: party.address ?? undefined,
-        openingBalance: Number(party.openingBalance),
+        openingBalance:     Number(party.openingBalance),
         openingBalanceSide: party.openingBalanceSide,
         createdAt: party.createdAt.toISOString(),
       },
