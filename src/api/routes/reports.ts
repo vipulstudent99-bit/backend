@@ -65,12 +65,13 @@ router.get("/profit-loss", async (req, res, next) => {
 
 /**
  * GET /api/reports/receivables
- * Returns all parties with outstanding AR balance (who owes us)
+ * Returns customers with outstanding AR balance (who owes us)
+ * Strategy: sum DEBIT - CREDIT on AR account per party, via Voucher join
  */
 router.get("/receivables", async (_req, res, next) => {
   try {
     const company = await prisma.company.findFirst();
-    if (!company) throw new Error("No company found. Run seed.");
+    if (!company) { res.json([]); return; }
 
     const arAccount = await prisma.account.findFirst({
       where: { companyId: company.id, role: "AR" },
@@ -83,11 +84,14 @@ router.get("/receivables", async (_req, res, next) => {
 
     const result = await Promise.all(
       parties.map(async (party) => {
+        // Get all entries on AR account from posted vouchers belonging to this party
         const entries = await prisma.entry.findMany({
           where: {
             accountId: arAccount.id,
-            partyId: party.id,
-            voucher: { status: "POSTED" },
+            voucher: {
+              partyId: party.id,
+              status: "POSTED",
+            },
           },
           select: { side: true, amount: true },
         });
@@ -100,7 +104,7 @@ router.get("/receivables", async (_req, res, next) => {
           partyId: party.id,
           code: party.code,
           name: party.name,
-          balance,
+          balance: Math.abs(balance),
           balanceSide: balance >= 0 ? "DR" : "CR",
         };
       })
@@ -114,12 +118,12 @@ router.get("/receivables", async (_req, res, next) => {
 
 /**
  * GET /api/reports/payables
- * Returns all parties with outstanding AP balance (who we owe)
+ * Returns suppliers with outstanding AP balance (we owe them)
  */
 router.get("/payables", async (_req, res, next) => {
   try {
     const company = await prisma.company.findFirst();
-    if (!company) throw new Error("No company found. Run seed.");
+    if (!company) { res.json([]); return; }
 
     const apAccount = await prisma.account.findFirst({
       where: { companyId: company.id, role: "AP" },
@@ -135,8 +139,10 @@ router.get("/payables", async (_req, res, next) => {
         const entries = await prisma.entry.findMany({
           where: {
             accountId: apAccount.id,
-            partyId: party.id,
-            voucher: { status: "POSTED" },
+            voucher: {
+              partyId: party.id,
+              status: "POSTED",
+            },
           },
           select: { side: true, amount: true },
         });
@@ -149,7 +155,7 @@ router.get("/payables", async (_req, res, next) => {
           partyId: party.id,
           code: party.code,
           name: party.name,
-          balance,
+          balance: Math.abs(balance),
           balanceSide: balance >= 0 ? "CR" : "DR",
         };
       })
