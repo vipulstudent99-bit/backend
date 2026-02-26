@@ -22,10 +22,6 @@ enum EntrySide {
   CREDIT
 }
 
-/**
- * PURPOSE / ROLE of an account inside its type
- * Used by API resolver (not accounting logic)
- */
 enum AccountRole {
   CASH
   BANK
@@ -36,20 +32,12 @@ enum AccountRole {
   OWNER
 }
 
-/**
- * Party type — is this a customer, supplier, or both?
- */
 enum PartyType {
   CUSTOMER
   SUPPLIER
   BOTH
 }
 
-/**
- * Opening balance side
- * DR = party owes YOU (customer outstanding)
- * CR = YOU owe party (supplier outstanding)
- */
 enum BalanceSide {
   DR
   CR
@@ -71,12 +59,12 @@ model Company {
   accountTypes         AccountType[]
   voucherTypes         VoucherType[]
   vouchers             Voucher[]
-  parties              Party[]       // ✅ Phase 1.5
+  parties              Party[]
 }
 
 model AccountType {
   id        String   @id @default(cuid())
-  code      String   @unique    // ASSET, LIABILITY, INCOME, EXPENSE, EQUITY
+  code      String   @unique
   name      String
 
   company   Company? @relation(fields: [companyId], references: [id])
@@ -87,10 +75,9 @@ model AccountType {
 
 model Account {
   id            String      @id @default(cuid())
-  code          String      @unique        // internal identifier
+  code          String      @unique
   name          String
-
-  role          AccountRole // critical for API resolution
+  role          AccountRole
 
   company       Company     @relation(fields: [companyId], references: [id])
   companyId     String
@@ -107,15 +94,13 @@ model Account {
 
 model Party {
   id                  String      @id @default(cuid())
-  code                String      @unique     // e.g. CUST-001, SUPP-001
+  code                String      @unique
   name                String
-  type                PartyType   // CUSTOMER | SUPPLIER | BOTH
+  type                PartyType
   phone               String?
   email               String?
   address             String?
 
-  // Opening balance as of system start date
-  // DR = they owe you | CR = you owe them
   openingBalance      Decimal     @default(0) @db.Decimal(18, 2)
   openingBalanceSide  BalanceSide @default(DR)
 
@@ -133,7 +118,7 @@ model Party {
 
 model VoucherType {
   id        String   @id @default(cuid())
-  code      String   @unique    // SALE, PURCHASE, RECEIPT, PAYMENT
+  code      String   @unique
   name      String
 
   company   Company @relation(fields: [companyId], references: [id])
@@ -150,9 +135,11 @@ model Voucher {
   voucherType   VoucherType   @relation(fields: [voucherTypeId], references: [id])
   voucherTypeId String
 
-  // ✅ Phase 1.5 — optional: cash transactions have no party
   party         Party?        @relation(fields: [partyId], references: [id])
   partyId       String?
+
+  // Assigned on POST — null while DRAFT
+  voucherNumber Int?
 
   status        VoucherStatus @default(DRAFT)
   voucherDate   DateTime
