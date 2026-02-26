@@ -1,20 +1,20 @@
-import { PrismaClient, Prisma } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { Prisma } from "@prisma/client";
+import { prisma } from "../../prisma/client";
 
 /**
  * Converts a DRAFT voucher into a POSTED voucher.
- * This operation is ATOMIC and CONCURRENCY-SAFE.
+ * ATOMIC, CONCURRENCY-SAFE, SERIALIZABLE transaction.
  *
- * Brick references:
- * - Brick 3: Posting rules
- * - Brick 4: Atomicity & concurrency safety
- * - Brick 5: Authority handled outside (caller responsibility)
+ * Rules:
+ * - Only DRAFT → POSTED allowed
+ * - Debit must equal Credit (re-validated at post time)
+ * - voucherNumber assigned on post (per company + voucherType)
+ * - Immutable after post
  */
 export async function postVoucher(voucherId: string) {
     return await prisma.$transaction(
         async (tx) => {
-            // 1. Load voucher + entries INSIDE transaction
+            // 1. Load voucher + entries inside transaction
             const voucher = await tx.voucher.findUnique({
                 where: { id: voucherId },
                 include: { entries: true },
@@ -34,15 +34,14 @@ export async function postVoucher(voucherId: string) {
                 throw new Error("Voucher must have at least two entries");
             }
 
-            // 4. Validate debit / credit
+            // 4. Validate Debit = Credit
             let debitTotal = 0;
             let creditTotal = 0;
 
             for (const entry of voucher.entries) {
-                if (entry.amount <= 0) {
+                if (Number(entry.amount) <= 0) {
                     throw new Error("Entry amount must be positive");
                 }
-
                 if (entry.side === "DEBIT") {
                     debitTotal += Number(entry.amount);
                 } else {
@@ -56,35 +55,28 @@ export async function postVoucher(voucherId: string) {
                 );
             }
 
-            // 5. Find last POSTED voucher number (per company + voucher type)
-            const lastPostedVoucher = await tx.voucher.findFirst({
+            // 5. Get next voucher number (per company + voucherType)
+            const lastPosted = await tx.voucher.findFirst({
                 where: {
                     companyId: voucher.companyId,
                     voucherTypeId: voucher.voucherTypeId,
                     status: "POSTED",
                 },
-                orderBy: {
-                    voucherNumber: "desc",
-                },
-                select: {
-                    voucherNumber: true,
-                },
+                orderBy: { voucherNumber: "desc" },
+                select: { voucherNumber: true },
             });
 
-            const nextVoucherNumber =
-                (lastPostedVoucher?.voucherNumber ?? 0) + 1;
+            const nextVoucherNumber = (lastPosted?.voucherNumber ?? 0) + 1;
 
-            // 6. Update voucher: assign number + mark POSTED
-            //    This happens INSIDE the same transaction
+            // 6. Mark as POSTED + assign voucher number (atomic)
             await tx.voucher.update({
                 where: { id: voucherId },
                 data: {
-                    voucherNumber: nextVoucherNumber,
                     status: "POSTED",
+                    voucherNumber: nextVoucherNumber,
                 },
             });
 
-            // 7. Return something useful (optional)
             return {
                 voucherId,
                 voucherNumber: nextVoucherNumber,
