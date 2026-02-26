@@ -79,7 +79,7 @@ async function resolveVoucherIds(body: any) {
     companyId: company.id,
     voucherTypeId: voucherTypeRecord.id,
     voucherType: voucherType as any,
-    subType,
+    subType: subType ?? null,
     totalAmount: Number(totalAmount),
     paymentAccountId,
     expenseAccountId,
@@ -88,13 +88,13 @@ async function resolveVoucherIds(body: any) {
     voucherDate: new Date(voucherDate),
     partyId: partyId ?? null,
     accounts: {
-      salesAccountId:          findByRole("SALES"),
+      salesAccountId:           findByRole("SALES"),
       purchaseExpenseAccountId: findByRole("PURCHASE"),
-      accountsReceivableId:    findByRole("AR"),
-      accountsPayableId:       findByRole("AP"),
-      ownerCapitalId:          findByRole("OWNER"),
-      cashAccountId:           findByRole("CASH"),
-      bankAccountId:           findByRole("BANK"),
+      accountsReceivableId:     findByRole("AR"),
+      accountsPayableId:        findByRole("AP"),
+      ownerCapitalId:           findByRole("OWNER"),
+      cashAccountId:            findByRole("CASH"),
+      bankAccountId:            findByRole("BANK"),
     },
   };
 }
@@ -120,21 +120,17 @@ router.get("/drafts", async (_req, res, next) => {
         .reduce((sum, e) => sum + Number(e.amount), 0);
 
       return {
-        voucherId:   v.id,
-        voucherType: v.voucherType.code,
-        subType:     v.narration?.startsWith("__subType:") // subType encoded in narration workaround
-                       ? v.narration.split("|")[0].replace("__subType:", "")
-                       : "N/A",
-        voucherDate:  v.voucherDate,
+        voucherId:     v.id,
+        voucherType:   v.voucherType.code,
+        subType:       v.subType ?? "N/A",
+        voucherDate:   v.voucherDate,
         totalAmount,
-        status:       v.status,
-        narration:    v.narration?.startsWith("__subType:")
-                        ? v.narration.split("|").slice(1).join("|")
-                        : v.narration,
-        partyId:      v.party?.id ?? null,
-        partyName:    v.party?.name ?? null,
+        status:        v.status,
+        narration:     v.narration,
+        partyId:       v.party?.id ?? null,
+        partyName:     v.party?.name ?? null,
         voucherNumber: v.voucherNumber,
-        createdAt:    v.createdAt,
+        createdAt:     v.createdAt,
       };
     });
 
@@ -167,6 +163,7 @@ router.get("/all", async (_req, res, next) => {
       return {
         voucherId:     v.id,
         voucherType:   v.voucherType.code,
+        subType:       v.subType ?? "N/A",
         voucherDate:   v.voucherDate,
         totalAmount,
         status:        v.status,
@@ -203,7 +200,7 @@ router.post("/draft", async (req, res, next) => {
 router.put("/draft/:id", async (req, res, next) => {
   try {
     const existing = await prisma.voucher.findUnique({ where: { id: req.params.id } });
-    if (!existing)               throw new Error("Voucher not found");
+    if (!existing)                   throw new Error("Voucher not found");
     if (existing.status !== "DRAFT") throw new Error("Only DRAFT vouchers can be edited");
 
     const resolved = await resolveVoucherIds(req.body);
@@ -220,7 +217,7 @@ router.put("/draft/:id", async (req, res, next) => {
 router.delete("/draft/:id", async (req, res, next) => {
   try {
     const existing = await prisma.voucher.findUnique({ where: { id: req.params.id } });
-    if (!existing)               throw new Error("Voucher not found");
+    if (!existing)                   throw new Error("Voucher not found");
     if (existing.status !== "DRAFT") throw new Error("Only DRAFT vouchers can be deleted");
 
     await deleteDraftVoucher(req.params.id);
