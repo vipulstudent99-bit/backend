@@ -138,6 +138,9 @@ model Voucher {
   party         Party?        @relation(fields: [partyId], references: [id])
   partyId       String?
 
+  // e.g. CASH_SALE, CREDIT_SALE, EXPENSE_PAYMENT, CASH_TO_BANK, etc.
+  subType       String?
+
   // Assigned on POST — null while DRAFT
   voucherNumber Int?
 
