@@ -36,6 +36,25 @@ enum AccountRole {
   OWNER
 }
 
+/**
+ * Party type — is this a customer, supplier, or both?
+ */
+enum PartyType {
+  CUSTOMER
+  SUPPLIER
+  BOTH
+}
+
+/**
+ * Opening balance side
+ * DR = party owes YOU (customer outstanding)
+ * CR = YOU owe party (supplier outstanding)
+ */
+enum BalanceSide {
+  DR
+  CR
+}
+
 //////////////////////////////////////////////////////
 // CORE MODELS
 //////////////////////////////////////////////////////
@@ -52,6 +71,7 @@ model Company {
   accountTypes         AccountType[]
   voucherTypes         VoucherType[]
   vouchers             Voucher[]
+  parties              Party[]       // ✅ Phase 1.5
 }
 
 model AccountType {
@@ -70,7 +90,7 @@ model Account {
   code          String      @unique        // internal identifier
   name          String
 
-  role          AccountRole // ✅ NEW — critical for API resolution
+  role          AccountRole // critical for API resolution
 
   company       Company     @relation(fields: [companyId], references: [id])
   companyId     String
@@ -79,6 +99,32 @@ model Account {
   accountTypeId String
 
   entries       Entry[]
+}
+
+//////////////////////////////////////////////////////
+// PARTIES (Phase 1.5)
+//////////////////////////////////////////////////////
+
+model Party {
+  id                  String      @id @default(cuid())
+  code                String      @unique     // e.g. CUST-001, SUPP-001
+  name                String
+  type                PartyType   // CUSTOMER | SUPPLIER | BOTH
+  phone               String?
+  email               String?
+  address             String?
+
+  // Opening balance as of system start date
+  // DR = they owe you | CR = you owe them
+  openingBalance      Decimal     @default(0) @db.Decimal(18, 2)
+  openingBalanceSide  BalanceSide @default(DR)
+
+  company             Company     @relation(fields: [companyId], references: [id])
+  companyId           String
+
+  vouchers            Voucher[]
+
+  createdAt           DateTime    @default(now())
 }
 
 //////////////////////////////////////////////////////
@@ -104,6 +150,10 @@ model Voucher {
   voucherType   VoucherType   @relation(fields: [voucherTypeId], references: [id])
   voucherTypeId String
 
+  // ✅ Phase 1.5 — optional: cash transactions have no party
+  party         Party?        @relation(fields: [partyId], references: [id])
+  partyId       String?
+
   status        VoucherStatus @default(DRAFT)
   voucherDate   DateTime
   narration     String?
@@ -115,12 +165,12 @@ model Voucher {
 
 model Entry {
   id        String    @id @default(cuid())
-  voucher   Voucher  @relation(fields: [voucherId], references: [id])
+  voucher   Voucher   @relation(fields: [voucherId], references: [id])
   voucherId String
 
-  account   Account  @relation(fields: [accountId], references: [id])
+  account   Account   @relation(fields: [accountId], references: [id])
   accountId String
 
   side      EntrySide
-  amount    Decimal  @db.Decimal(18, 2)
+  amount    Decimal   @db.Decimal(18, 2)
 }
