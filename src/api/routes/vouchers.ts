@@ -15,29 +15,24 @@ const router = Router();
 async function resolveVoucherIds(body: any) {
   const { voucherType, subType, totalAmount, paymentMode, narration, voucherDate } = body;
 
-  // 1. Get company (single-company setup)
   const company = await prisma.company.findFirst();
   if (!company) throw new Error("No company found. Run: npx ts-node prisma/seed.ts");
 
-  // 2. Resolve voucherTypeId from code string
   const voucherTypeRecord = await prisma.voucherType.findFirst({
     where: { code: voucherType },
   });
   if (!voucherTypeRecord) throw new Error(`VoucherType not found: ${voucherType}`);
 
-  // 3. Load all accounts for this company
   const accounts = await prisma.account.findMany({
     where: { companyId: company.id },
   });
 
-  // 4. Helper to find account UUID by role
   const findByRole = (role: string): string => {
     const acc = accounts.find((a) => a.role === role);
     if (!acc) throw new Error(`Account with role "${role}" not found. Run seed.`);
     return acc.id;
   };
 
-  // 5. Resolve paymentAccountId from paymentMode
   let paymentAccountId: string | undefined;
   if (paymentMode === "CASH") paymentAccountId = findByRole("CASH");
   if (paymentMode === "BANK") paymentAccountId = findByRole("BANK");
@@ -63,25 +58,39 @@ async function resolveVoucherIds(body: any) {
 
 /**
  * GET /api/vouchers/drafts
- * Return all DRAFT vouchers
+ * Returns fields matching frontend Voucher type exactly:
+ * { voucherId, voucherType, subType, voucherDate, totalAmount, status, narration, createdAt }
  */
 router.get("/drafts", async (_req, res, next) => {
   try {
     const drafts = await prisma.voucher.findMany({
       where: { status: "DRAFT" },
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        voucherDate: true,
-        status: true,
-        narration: true,
-        createdAt: true,
-        voucherType: {
-          select: { code: true, name: true },
-        },
+      include: {
+        voucherType: { select: { code: true, name: true } },
+        entries: { select: { side: true, amount: true } },
       },
     });
-    res.json(drafts);
+
+    // Shape response to match frontend Voucher type
+    const shaped = drafts.map((v) => {
+      const totalAmount = v.entries
+        .filter((e) => e.side === "DEBIT")
+        .reduce((sum, e) => sum + Number(e.amount), 0);
+
+      return {
+        voucherId: v.id,
+        voucherType: v.voucherType.code,
+        subType: "N/A",           // subType not stored on Voucher model — placeholder
+        voucherDate: v.voucherDate,
+        totalAmount,
+        status: v.status,
+        narration: v.narration,
+        createdAt: v.createdAt,
+      };
+    });
+
+    res.json(shaped);
   } catch (err) {
     next(err);
   }
@@ -89,7 +98,6 @@ router.get("/drafts", async (_req, res, next) => {
 
 /**
  * POST /api/vouchers/draft
- * Create a new draft voucher
  */
 router.post("/draft", async (req, res, next) => {
   try {
@@ -103,7 +111,6 @@ router.post("/draft", async (req, res, next) => {
 
 /**
  * PUT /api/vouchers/draft/:id
- * Update an existing draft voucher
  */
 router.put("/draft/:id", async (req, res, next) => {
   try {
@@ -121,7 +128,6 @@ router.put("/draft/:id", async (req, res, next) => {
 
 /**
  * DELETE /api/vouchers/draft/:id
- * Delete a draft voucher
  */
 router.delete("/draft/:id", async (req, res, next) => {
   try {
@@ -138,7 +144,6 @@ router.delete("/draft/:id", async (req, res, next) => {
 
 /**
  * POST /api/vouchers/:id/post
- * Post (finalize) a draft voucher
  */
 router.post("/:id/post", async (req, res, next) => {
   try {
