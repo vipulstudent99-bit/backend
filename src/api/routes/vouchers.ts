@@ -66,9 +66,6 @@ async function resolveVoucherIds(body: any) {
 
   let expenseAccountId: string | undefined;
   if (voucherType === "PAYMENT" && subType === "EXPENSE_PAYMENT") {
-    // Resolve in priority order:
-    // 1. Explicit expenseAccountCode from frontend (advanced override)
-    // 2. paymentCategory → auto-mapped using EXPENSE_CATEGORY_TO_ACCOUNT_CODE
     const resolvedCode =
       expenseAccountCode ||
       (paymentCategory && EXPENSE_CATEGORY_TO_ACCOUNT_CODE[String(paymentCategory).toUpperCase()]);
@@ -133,7 +130,7 @@ router.get("/drafts", async (_req, res, next) => {
     const shaped = drafts.map((v) => ({
       voucherId:     v.id,
       voucherType:   v.voucherType.code,
-      subType:       v.subType ?? "N/A",
+      subType:       v.subType ?? null,          // ← FIXED: was "N/A", now null
       voucherDate:   v.voucherDate,
       totalAmount:   v.entries.filter((e) => e.side === "DEBIT").reduce((s, e) => s + Number(e.amount), 0),
       status:        v.status,
@@ -169,7 +166,7 @@ router.get("/all", async (_req, res, next) => {
     const shaped = all.map((v) => ({
       voucherId:     v.id,
       voucherType:   v.voucherType.code,
-      subType:       v.subType ?? "N/A",
+      subType:       v.subType ?? null,          // ← FIXED: was "N/A", now null
       voucherDate:   v.voucherDate,
       totalAmount:   v.entries.filter((e) => e.side === "DEBIT").reduce((s, e) => s + Number(e.amount), 0),
       status:        v.status,
