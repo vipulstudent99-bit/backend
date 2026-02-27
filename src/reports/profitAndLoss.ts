@@ -16,13 +16,18 @@ export async function getProfitAndLoss(params: {
 }) {
     const { companyId, fromDate, toDate } = params;
 
+    // Extend toDate to end of day so today's entries are always included
+    const toDateEndOfDay = toDate
+        ? new Date(new Date(toDate).setHours(23, 59, 59, 999))
+        : undefined;
+
     const dateFilter =
-        fromDate || toDate
+        fromDate || toDateEndOfDay
             ? {
                 voucher: {
                     voucherDate: {
-                        ...(fromDate ? { gte: fromDate } : {}),
-                        ...(toDate ? { lte: toDate } : {}),
+                        ...(fromDate        ? { gte: fromDate }        : {}),
+                        ...(toDateEndOfDay  ? { lte: toDateEndOfDay }  : {}),
                     },
                     status: "POSTED",
                 },
@@ -88,15 +93,15 @@ export async function getProfitAndLoss(params: {
         }
     }
 
-    const totalIncome = income.reduce((s, r) => s + r.amount, 0);
+    const totalIncome   = income.reduce((s, r) => s + r.amount, 0);
     const totalExpenses = expenses.reduce((s, r) => s + r.amount, 0);
-    const netProfit = totalIncome - totalExpenses;
+    const netProfit     = totalIncome - totalExpenses;
 
     return {
         income,
         expenses,
         totalIncome,
-        totalExpenses,   // matches frontend: report.totalExpenses
-        netProfit,       // matches frontend: report.netProfit
+        totalExpenses,
+        netProfit,
     };
 }
